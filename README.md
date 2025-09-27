@@ -1,1 +1,1 @@
-# LLM-Based-Document-Comparator
+# LLM-Based-Document-Comparator (Proof of Concept)
