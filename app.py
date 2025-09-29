@@ -124,18 +124,18 @@ st.markdown("""
         box-shadow: 0 8px 20px rgba(76, 175, 80, 0.3);
     }
     .stDataFrame {
-        max-width: 800px; /* Reduce table width */
+        max-width: 800px;
         overflow-x: auto;
     }
     .stDataFrame table {
         width: 100%;
-        table-layout: fixed; /* Ensure columns respect width */
+        table-layout: fixed;
     }
     .stDataFrame th, .stDataFrame td {
-        word-wrap: break-word; /* Wrap long text */
-        max-width: 200px; /* Limit column width */
+        word-wrap: break-word;
+        max-width: 200px;
         overflow: hidden;
-        text-overflow: ellipsis; /* Truncate long text with ellipsis */
+        text-overflow: ellipsis;
     }
     
     .download-section {
@@ -228,7 +228,7 @@ st.markdown("""
     
     .stApp .stWidget {
         background: transparent !important;
-        border: none !important;
+        border Ogni: none !important;
         box-shadow: none !important;
     }
 </style>
@@ -278,7 +278,6 @@ def extract_docx_text(file):
 def extract_json_text(file):
     try:
         data = json.load(io.BytesIO(file.read()))
-        # Convert JSON to string, handling nested structures
         def flatten_json(obj, parent_key='', sep='.'):
             items = []
             if isinstance(obj, dict):
@@ -359,16 +358,16 @@ You are an expert document analyst tasked with creating a comprehensive, detaile
 
 ### Heading: [Heading Name]
 
-| **Actual** | **Revised** | **Change Description** | **Change Type** (in comparison with actual document) |
+| Actual | Revised | Change Description | Change Type |
 |------------|-------------|------------------------|------------------------------------------------------|
-| [text]     | [text]      | [description of what changed] | [Added/Deleted/Modified/Structural change]           |
+| [text]     | [text]      | [description of what changed] | [Added/Deleted/Modified/Structural change]|
 
 ### Subheading: [Subheading Name]
 
-**Actual**: [text/content]
-**Revised**: [text/content]
-**Change Description**: [description of what changed]
-**Change Type**: [Added/Deleted/Modified/Structural change] in comparison with actual document
+**Actual**: Content from Original Document
+**Revised**: Content from Revised Document
+**Change Description**: Clear explanation of what changed
+**Change Type**: Addition/Deletion/Modification/Structural change 
 
 [Repeat for all headings, subheadings, tables, and sections.]
 
@@ -389,7 +388,12 @@ You are an expert document analyst tasked with creating a comprehensive, detaile
 ## Recommendations
 
 - [Suggestions for improvements or points to review in comparison with actual document]
+### Important:
 
+- Do not make assumptions about missing content.
+- Do not summarize content without a side-by-side comparison.
+- Compare only sections, tables, lists, and content explicitly present in the documents.
+- **VERY IMPORTANT: When creating tables, ensure every column boundary is marked by a single pipe symbol (|). Keep the text in table cells, especially 'Change Description' and 'Change Type,' short and concise to prevent the table from breaking.**
 ---
 
 ACTUAL DOCUMENT:
@@ -405,62 +409,133 @@ REVISED DOCUMENT:
         st.error(f"❌ Error in AI comparison: {str(e)}")
         return None
 
-# Helper function to process Markdown for different formats
-def process_markdown(text, output_format="txt"):
-    """
-    Process Markdown text to convert or remove formatting based on the output format.
-    - For TXT: Remove Markdown symbols, keep plain text.
-    - For PDF/DOCX: Parse headings, bold, italic, and lists for formatting.
-    - For JSON: Keep raw Markdown but ensure proper structure.
-    """
+# Parse Markdown tables
+def parse_markdown_tables(text):
+    tables = []
     lines = text.splitlines()
-    processed_lines = []
-    current_heading_level = 0
+    current_table = None
+    in_table = False
+    is_header = True
 
     for line in lines:
         line = line.strip()
         if not line:
-            processed_lines.append("")
+            if in_table and current_table and current_table["rows"]:
+                tables.append(current_table)
+            in_table = False
+            current_table = None
+            is_header = True
             continue
 
-        # Handle headings (#, ##, ###, etc.)
+        # Handle table lines
+        if line.startswith("|"):
+            # A table separator line (e.g., |---|---|)
+            if re.match(r'^\|(\s*:?-+:?\s*\|)+$', line):
+                if in_table and is_header:
+                    is_header = False  # Confirmed header is complete
+                continue  # Skip separator line
+
+            # Check for placeholder lines (like those in your image: |---|---|---|)
+            # This pattern matches one or more groups of (non-whitespace characters then a pipe)
+            if all(re.match(r'^(-+|_|)+\s*$', cell.strip()) for cell in line.strip("|").split("|") if cell.strip()):
+                continue # Skip placeholder/junk line
+
+            if not in_table:
+                in_table = True
+                is_header = True
+                # Extract headers and remove Markdown asterisks
+                headers = [re.sub(r'\*+([^*]+)\*+', r'\1', cell.strip()) for cell in line.strip("|").split("|") if cell.strip()]
+                # If the line contains only blank cells, it's not a valid header
+                if not any(headers):
+                    in_table = False
+                    continue
+                current_table = {"headers": headers, "rows": []}
+            # app1.py (Around line 380 - Revised logic)
+            elif not is_header:
+                # Extract row data, remove all Markdown formatting (asterisks, underscores)
+                cells_raw = line.strip("|").split("|")
+                cells = []
+                for cell in cells_raw:
+                    clean_cell = re.sub(r'(\*\*|__|\*|_)([^*_]*)\1', r'\2', cell.strip()) # Clean up standard bold/italics
+                    clean_cell = clean_cell.strip()
+                    cells.append(clean_cell)
+
+                # Simple count check:
+                if len(cells) == len(current_table["headers"]) + 2: # |A|B|C| -> ['', 'A', 'B', 'C', ''] (5 parts for 3 headers)
+                    cells = cells[1:-1] # Remove the empty start/end parts
+                elif len(cells) == len(current_table["headers"]) + 1 and not cells[0]: # |A|B|C -> ['', 'A', 'B', 'C'] (4 parts for 3 headers)
+                    cells = cells[1:]
+                elif len(cells) == len(current_table["headers"]) + 1 and not cells[-1]: # A|B|C| -> ['A', 'B', 'C', ''] (4 parts for 3 headers)
+                    cells = cells[:-1]
+                elif len(cells) != len(current_table["headers"]):
+                    # If it's still the wrong length, it's likely a malformed line we should skip.
+                    continue
+                
+                # Final validity check: must have the correct number of columns AND contain actual text
+                if len(cells) == len(current_table["headers"]) and any(cells):
+                    # One final clean on each cell: remove all leading/trailing whitespace
+                    cells = [c.strip() for c in cells]
+                    current_table["rows"].append(cells)
+    if in_table and current_table and current_table["rows"]:
+        tables.append(current_table)
+
+    return tables
+
+# Process Markdown content
+def process_markdown(text, output_format="txt"):
+    lines = text.splitlines()
+    processed_lines = []
+    current_heading_level = 0
+    in_table = False
+    current_table_lines = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            processed_lines.append({"type": "text", "content": ""})
+            continue
+
+        # Handle tables
+        if line.startswith("|"):
+            in_table = True
+            current_table_lines.append(line)
+            continue
+        elif in_table and not line.startswith("|-"):
+            in_table = False
+            if current_table_lines:
+                processed_lines.append({"type": "table", "content": "\n".join(current_table_lines)})
+                current_table_lines = []
+            if line.startswith("|-"):
+                continue
+
+        # Handle headings
         heading_match = re.match(r'^(#+)\s*(.*)$', line)
         if heading_match:
             level = len(heading_match.group(1))
-            content = heading_match.group(2).strip()
-            if output_format == "txt":
-                processed_lines.append(content)
-            elif output_format in ["pdf", "docx"]:
-                processed_lines.append({"type": "heading", "level": level, "content": content})
-            elif output_format == "json":
-                processed_lines.append(line)  # Keep Markdown for JSON
+            # Remove Markdown asterisks from heading content
+            content = re.sub(r'\*+([^*]+)\*+', r'\1', heading_match.group(2).strip())
+            content = re.sub(r'__(.*?)__', r'\1', content)
+            processed_lines.append({"type": "heading", "level": level, "content": content})
             continue
 
-        # Handle bold (**text** or __text__)
-        line = re.sub(r'\*\*(.*?)\*\*', r'\1', line)
-        line = re.sub(r'__(.*?)__', r'\1', line)
+        # Handle bold and italic
+        line = re.sub(r'\*\*([^*]+)\*\*', r'\1', line)
+        line = re.sub(r'__([^_]+)__', r'\1', line)
+        line = re.sub(r'\*([^*]+)\*', r'\1', line)
+        line = re.sub(r'_([^_]+)_', r'\1', line)
 
-        # Handle italic (*text* or _text_)
-        line = re.sub(r'\*(.*?)\*', r'\1', line)
-        line = re.sub(r'_(.*?)_', r'\1', line)
-
-        # Handle lists (- or *)
+        # Handle lists
         list_match = re.match(r'^[-*]\s+(.*)$', line)
         if list_match:
-            content = list_match.group(1).strip()
-            if output_format == "txt":
-                processed_lines.append(f"- {content}")
-            elif output_format in ["pdf", "docx"]:
-                processed_lines.append({"type": "list", "content": content})
-            elif output_format == "json":
-                processed_lines.append(line)
+            content = re.sub(r'\*+([^*]+)\*+', r'\1', list_match.group(1).strip())
+            processed_lines.append({"type": "list", "content": content})
             continue
 
         # Handle plain text
-        if output_format in ["txt", "json"]:
-            processed_lines.append(line)
-        elif output_format in ["pdf", "docx"]:
-            processed_lines.append({"type": "text", "content": line})
+        processed_lines.append({"type": "text", "content": re.sub(r'\*+([^*]+)\*+', r'\1', line)})
+
+    if in_table and current_table_lines:
+        processed_lines.append({"type": "table", "content": "\n".join(current_table_lines)})
 
     return processed_lines
 
@@ -471,11 +546,9 @@ def generate_comparison_table(original_text, revised_text, ai_analysis, original
     line_diff = len(revised_text.splitlines()) - len(original_text.splitlines())
     word_diff = len(revised_text.split()) - len(original_text.split())
 
-    # Truncate filenames to avoid overly wide columns
-    original_filename = original_filename[:20]  # Limit to 20 chars
-    revised_filename = revised_filename[:20]  # Limit to 20 chars
+    original_filename = original_filename[:20]
+    revised_filename = revised_filename[:20]
 
-    # Create table data with shorter descriptions
     table_data = [
         {
             "Metric": "Document Names",
@@ -512,7 +585,7 @@ def generate_pdf_report(report_text, original_filename, revised_filename, table_
         width, height = letter
         y_position = height - 40
         left_margin = 40
-        max_width = width - 80  # 520 pixels for letter page with 40px margins
+        max_width = width - 80
 
         def draw_wrapped_text(text, x, y, font, size, max_width, leading=15):
             c.setFont(font, size)
@@ -535,6 +608,22 @@ def generate_pdf_report(report_text, original_filename, revised_filename, table_
                 y_pos -= leading
             return y_pos
 
+        def split_text_to_fit(text, font, size, max_width):
+            """Split text into lines that fit within max_width."""
+            c.setFont(font, size)
+            words = text.split()
+            lines = []
+            current_line = ""
+            for word in words:
+                if c.stringWidth(current_line + word + " ", font, size) < max_width:
+                    current_line += word + " "
+                else:
+                    lines.append(current_line.strip())
+                    current_line = word + " "
+            if current_line.strip():
+                lines.append(current_line.strip())
+            return lines
+
         # Title
         c.setFont("Helvetica-Bold", 16)
         c.drawString(left_margin, y_position, "Document Comparison Report")
@@ -550,21 +639,19 @@ def generate_pdf_report(report_text, original_filename, revised_filename, table_
         # Comparison Table
         c.setFont("Helvetica-Bold", 12)
         y_position = draw_wrapped_text("Comparison Analysis Table", left_margin, y_position, "Helvetica-Bold", 12, max_width)
-        y_position -= 10
+        y_position -= 20  # Add spacing before table
 
-        # Prepare table data
+        col_widths = [100, 120, 120, 115]  # Adjusted to fit within max_width (~455 points)
         table_content = [["Metric", "Original", "Revised", "Description"]]
         for row in table_data:
             table_content.append([
-                row["Metric"],
-                row["Original"],
-                row["Revised"],
-                row["Description"][:100]  # Truncate description
+                '\n'.join(split_text_to_fit(row["Metric"], "Helvetica", 7, 100)),
+                '\n'.join(split_text_to_fit(row["Original"], "Helvetica", 7, 120)),
+                '\n'.join(split_text_to_fit(row["Revised"], "Helvetica", 7, 120)),
+                '\n'.join(split_text_to_fit(row["Description"], "Helvetica", 7, 115))
             ])
 
-        # Create table with reduced column widths
-        col_widths = [80, 120, 120, 130]  # Total = 450 pixels, fits within 520px max_width
-        table = Table(table_content, colWidths=col_widths)
+        table = Table(table_content, colWidths=col_widths, rowHeights=[40] * len(table_content))
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -572,38 +659,80 @@ def generate_pdf_report(report_text, original_filename, revised_filename, table_
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('FONTSIZE', (0, 0), (-1, 0), 10),
             ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 8),
+            ('FONTSIZE', (0, 1), (-1, -1), 7),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('WORDWRAP', (0, 0), (-1, -1), True),  # Enable word wrapping
+            ('WORDWRAP', (0, 0), (-1, -1), True),
         ]))
         table.wrapOn(c, max_width, y_position)
         table_height = table._height
         table.drawOn(c, left_margin, y_position - table_height)
         y_position -= table_height + 20
 
-        # Process Markdown content
+        # Process AI analysis
         processed_content = process_markdown(report_text, output_format="pdf")
         for item in processed_content:
-            if not item:
-                y_position -= 15
-                continue
-            if isinstance(item, dict):
-                content = item["content"]
-                if item["type"] == "heading":
-                    level = item["level"]
-                    font_size = 14 if level == 1 else 12 if level == 2 else 10
-                    c.setFont("Helvetica-Bold", font_size)
-                    y_position = draw_wrapped_text(content, left_margin, y_position, "Helvetica-Bold", font_size, max_width)
-                elif item["type"] == "list":
-                    c.setFont("Helvetica", 10)
-                    y_position = draw_wrapped_text(f"• {content}", left_margin + 10, y_position, "Helvetica", 10, max_width - 10)
-                elif item["type"] == "text":
-                    c.setFont("Helvetica", 10)
-                    y_position = draw_wrapped_text(content, left_margin, y_position, "Helvetica", 10, max_width)
-            else:
+            if item["type"] == "heading":
+                level = item["level"]
+                font_size = 14 if level == 1 else 12 if level == 2 else 10
+                c.setFont("Helvetica-Bold", font_size)
+                y_position = draw_wrapped_text(item["content"], left_margin, y_position, "Helvetica-Bold", font_size, max_width)
+            elif item["type"] == "list":
                 c.setFont("Helvetica", 10)
-                y_position = draw_wrapped_text(item, left_margin, y_position, "Helvetica", 10, max_width)
+                # Use plain bullet point without Markdown asterisks
+                y_position = draw_wrapped_text(f"• {item['content']}", left_margin + 10, y_position, "Helvetica", 10, max_width - 10)
+            elif item["type"] == "text" and item["content"]:
+                c.setFont("Helvetica", 10)
+                y_position = draw_wrapped_text(item["content"], left_margin, y_position, "Helvetica", 10, max_width)
+            # REVISED PDF TABLE PROCESSING (Starting around line 600 in app1.py)
+            elif item["type"] == "table":
+                tables = parse_markdown_tables(item["content"])
+                for table_data in tables:
+                    table_content = [table_data["headers"]]
+                    # Use specific column widths for content
+                    col_widths_table = [100, 120, 120, 115]
+                    
+                    # 1. Prepare table content and calculate required row heights
+                    row_heights = [20] # Height for the header row
+                    for row in table_data["rows"]:
+                        wrapped_row = []
+                        max_lines = 1
+                        for i, cell in enumerate(row):
+                            # Use the specific column width for wrapping
+                            lines = split_text_to_fit(cell, "Helvetica", 7, col_widths_table[i])
+                            wrapped_row.append('\n'.join(lines))
+                            max_lines = max(max_lines, len(lines))
+                        
+                        table_content.append(wrapped_row)
+                        # Estimate height: 10 points for padding/spacing + (lines * font_size)
+                        row_heights.append(15 + max_lines * 11.5) 
+
+                    # 2. Create and style the table
+                    # Pass the calculated row_heights to the Table constructor
+                    table = Table(table_content, colWidths=col_widths_table, rowHeights=row_heights)
+                    table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0, 0), (-1, 0), 10),
+                        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                        ('FONTSIZE', (0, 1), (-1, -1), 7),
+                        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                        # ReportLab's word wrapping is limited; our pre-wrapping in `split_text_to_fit` is key.
+                    ]))
+                    
+                    # 3. Draw the table (using wrapOn to confirm height)
+                    table.wrapOn(c, max_width, y_position)
+                    table_height = table._height
+                    
+                    if y_position - table_height < 50:
+                        c.showPage()
+                        y_position = height - 40
+                        
+                    table.drawOn(c, left_margin, y_position - table_height)
+                    y_position -= table_height + 20
             if y_position < 50:
                 c.showPage()
                 y_position = height - 40
@@ -639,37 +768,47 @@ def generate_docx_report(report_text, original_filename, revised_filename, table
             hdr_cells[i].text = header
             hdr_cells[i].paragraphs[0].runs[0].bold = True
 
-        # Set column widths (in centimeters, total ~12cm for narrower table)
-        col_widths = [2.5, 3.5, 3.5, 2.5]  # Narrower widths
+        col_widths = [3.0, 4.0, 4.0, 3.0]
         for col_idx, width in enumerate(col_widths):
             table.columns[col_idx].width = Cm(width)
 
         for row in table_data:
             row_cells = table.add_row().cells
-            row_cells[0].text = row["Metric"]
-            row_cells[1].text = row["Original"]
-            row_cells[2].text = row["Revised"]
-            row_cells[3].text = row["Description"][:100]  # Truncate description
+            row_cells[0].text = row["Metric"][:100]
+            row_cells[1].text = row["Original"][:150]
+            row_cells[2].text = row["Revised"][:150]
+            row_cells[3].text = row["Description"][:150]
 
         # AI Analysis
         doc.add_heading('AI Analysis Results', level=1)
         processed_content = process_markdown(report_text, output_format="docx")
         for item in processed_content:
-            if not item:
-                doc.add_paragraph("")
-                continue
-            if isinstance(item, dict):
-                content = item["content"]
-                if item["type"] == "heading":
-                    level = min(item["level"], 3)
-                    doc.add_heading(content, level=level)
-                elif item["type"] == "list":
-                    para = doc.add_paragraph()
-                    para.add_run(f"• {content}")
-                elif item["type"] == "text":
-                    doc.add_paragraph(content)
-            else:
-                doc.add_paragraph(item)
+            if item["type"] == "heading":
+                level = min(item["level"], 3)
+                doc.add_heading(item["content"], level=level)
+            elif item["type"] == "list":
+                # Use plain bullet point without Markdown asterisks
+                para = doc.add_paragraph()
+                para.add_run(f"• {item['content']}")
+            elif item["type"] == "text" and item["content"]:
+                doc.add_paragraph(item["content"])
+            elif item["type"] == "table":
+                tables = parse_markdown_tables(item["content"])
+                for table_data in tables:
+                    table = doc.add_table(rows=1, cols=len(table_data["headers"]))
+                    table.style = 'Table Grid'
+                    hdr_cells = table.rows[0].cells
+                    for i, header in enumerate(table_data["headers"]):
+                        hdr_cells[i].text = header
+                        hdr_cells[i].paragraphs[0].runs[0].bold = True
+                    for col_idx, width in enumerate(col_widths):
+                        table.columns[col_idx].width = Cm(width)
+                    for row in table_data["rows"]:
+                        row_cells = table.add_row().cells
+                        for i, cell in enumerate(row):
+                            row_cells[i].text = cell
+                            for paragraph in row_cells[i].paragraphs:
+                                paragraph.style.font.size = Cm(0.25)
 
         # Footer
         footer = doc.add_paragraph('Generated by AI Document Comparator')
@@ -683,9 +822,75 @@ def generate_docx_report(report_text, original_filename, revised_filename, table
         st.error(f"❌ Error generating DOCX: {str(e)}")
         return None
 
+# Generate TXT report
+def generate_txt_report(report_text, original_filename, revised_filename, table_data, similarity, length_change, original_text, revised_text):
+    try:
+        table_text = "COMPARISON ANALYSIS TABLE:\n"
+        table_text += f"{'Metric':<15} {'Original':<20} {'Revised':<20} {'Description':<25}\n"
+        table_text += "-" * 80 + "\n"
+        for row in table_data:
+            table_text += f"{row['Metric'][:15]:<15} {row['Original'][:20]:<20} {row['Revised'][:20]:<20} {row['Description'][:25]:<25}\n"
+
+        # Process AI analysis tables
+        processed_content = process_markdown(report_text, output_format="txt")
+        ai_analysis_text = ""
+        for item in processed_content:
+            if item["type"] == "heading":
+                ai_analysis_text += f"\n{item['content']}\n"
+            elif item["type"] == "list":
+                # Use plain hyphen for bullet points
+                ai_analysis_text += f"- {item['content']}\n"
+            elif item["type"] == "text" and item["content"]:
+                ai_analysis_text += f"{item['content']}\n"
+            elif item["type"] == "table":
+                tables = parse_markdown_tables(item["content"])
+                for table_data in tables:
+                    for table_data in tables:
+                        headers = table_data["headers"]
+                        ai_analysis_text += "\n"
+                        ai_analysis_text += f"{headers[0]:<60} {headers[1]:<60} {headers[2]:<80} {headers[3]:<60}\n"
+                        ai_analysis_text += "-" * 260 + "\n"
+                        for row in table_data["rows"]:
+                            ai_analysis_text += f"{row[0]:<60} {row[1]:<60} {row[2]:<80} {row[3]:<60}\n"
+        report_text = f"""Document Comparison Report
+
+Original Document: {original_filename}
+Revised Document: {revised_filename}
+Analysis Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Generated By: AI Document Comparator
+
+COMPARISON METRICS:
+- Similarity: {similarity}%
+- Length Change: {length_change:+.1f}%
+- Character Difference: {len(revised_text) - len(original_text):+,}
+- Line Difference: {len(revised_text.splitlines()) - len(original_text.splitlines()):+,}
+
+{table_text}
+AI ANALYSIS:
+{ai_analysis_text}
+"""
+        return report_text.encode('utf-8')
+    except Exception as e:
+        st.error(f"❌ Error generating TXT: {str(e)}")
+        return None
+
 # Generate JSON report
 def generate_json_report(report_text, original_filename, revised_filename, table_data):
     try:
+        tables = parse_markdown_tables(report_text)
+        processed_content = process_markdown(report_text, output_format="json")
+        analysis_content = []
+        for item in processed_content:
+            if item["type"] == "table":
+                table_content = parse_markdown_tables(item["content"])[0]
+                analysis_content.append({
+                    "type": "table",
+                    "headers": table_content["headers"],
+                    "rows": table_content["rows"]
+                })
+            else:
+                analysis_content.append(item)
+
         report_data = {
             "report_metadata": {
                 "original_document": original_filename,
@@ -694,7 +899,7 @@ def generate_json_report(report_text, original_filename, revised_filename, table
                 "generated_by": "AI Document Comparator"
             },
             "comparison_table": table_data,
-            "ai_analysis": report_text,
+            "ai_analysis": analysis_content,
             "document_stats": {
                 "analysis_type": "AI-powered document comparison",
                 "comparison_method": "AI analysis"
@@ -748,25 +953,25 @@ def main():
         
         st.markdown("### 📋 How to Use")
         st.markdown("""
-        1. **Upload Original Document** - First version/baseline document
-        2. **Upload Revised Document** - Updated/modified version
-        3. **Click Compare** - AI analyzes all differences
-        4. **Review Results** - Get comprehensive comparison report
-        5. **Download Report** - Save results in multiple formats
+        1. Upload Original Document - First version/baseline document
+        2. Upload Revised Document - Updated/modified version
+        3. Click Compare - AI analyzes all differences
+        4. Review Results - Get comprehensive comparison report
+        5. Download Report - Save results in multiple formats
         """)
         
         st.markdown("### 📄 Supported Formats")
-        st.markdown("- **PDF** (.pdf) - All types of PDF documents")
-        st.markdown("- **Word** (.docx) - Microsoft Word documents")
-        st.markdown("- **Text** (.txt) - Plain text files")
-        st.markdown("- **JSON** (.json) - JSON structured data")
+        st.markdown("- PDF (.pdf) - All types of PDF documents")
+        st.markdown("- Word (.docx) - Microsoft Word documents")
+        st.markdown("- Text (.txt) - Plain text files")
+        st.markdown("- JSON (.json) - JSON structured data")
         
         st.markdown("### ⚡ Key Features")
-        st.markdown("- **AI-Powered Analysis** - Advanced comparison using Gemini AI")
-        st.markdown("- **Comprehensive Reports** - Detailed change analysis with comparison table")
-        st.markdown("- **Multiple Export Formats** - PDF, DOCX, TXT, JSON")
-        st.markdown("- **Visual Diff View** - Technical line-by-line comparison")
-        st.markdown("- **Document Preview** - Side-by-side text view")
+        st.markdown("- AI-Powered Analysis - Advanced comparison using Gemini AI")
+        st.markdown("- Comprehensive Reports - Detailed change analysis with comparison table")
+        st.markdown("- Multiple Export Formats - PDF, DOCX, TXT, JSON")
+        st.markdown("- Visual Diff View - Technical line-by-line comparison")
+        st.markdown("- Document Preview - Side-by-side text view")
 
     # Main content area
     col1, col2 = st.columns(2)
@@ -794,20 +999,15 @@ def main():
         st.markdown('</div>', unsafe_allow_html=True)
 
     if original_file and revised_file:
-        
-        # Extract text from documents
         with st.spinner("🔍 Extracting text from documents..."):
             original_text = extract_text(original_file)
             revised_text = extract_text(revised_file)
 
         if original_text and revised_text:
-            # Calculate metrics
             similarity = calculate_similarity(original_text, revised_text)
             length_change = ((len(revised_text) - len(original_text)) / len(original_text) * 100)
             
-            # Document information
             col1, col2 = st.columns(2)
-            
             with col1:
                 st.markdown(f"""
                 <div class="success-box">
@@ -830,7 +1030,6 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
 
-            # Comparison metrics
             st.markdown(f"""
             <div class="metric-container">
                 <h4>📊 Quick Metrics</h4>
@@ -842,44 +1041,43 @@ def main():
                 </div>
             </div>
             """, unsafe_allow_html=True)
+            # Add a text input for the reference name
+            reference_name = st.text_input(
+                "📝 Enter Reference Name (e.g., Contract V1 to V2)",
+                value="refrence", # Set the default value as requested
+                key="reference_name_input",
+                help="This name will be included in the report header, outside of the comparison tables."
+            )
+            st.session_state['reference_name'] = reference_name # Store in session state
 
-            # Compare button
-            if st.button("🔍 **COMPARE DOCUMENTS**", type="primary", use_container_width=True):
+            if st.button("🔍 COMPARE DOCUMENTS", type="primary", use_container_width=True):
                 with st.spinner("🤖 AI is analyzing the differences... This may take a moment."):
-                    # Generate comparison table
                     table_data = generate_comparison_table(
                         original_text,
                         revised_text,
-                        "",  # Placeholder for ai_analysis as it's not yet available
+                        "",
                         original_file.name,
                         revised_file.name
                     )
                     st.session_state['table_data'] = table_data
                     
-                    # Perform AI analysis
                     ai_analysis = compare_documents_ai(original_text, revised_text, model)
                     if ai_analysis:
                         st.session_state['analysis'] = ai_analysis
                         st.session_state['analysis_date'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-            # Display comparison results if available in session state
             if 'analysis' in st.session_state and 'table_data' in st.session_state:
                 st.markdown('<div class="comparison-result">', unsafe_allow_html=True)
-                
-                # Display comparison table at the start
                 st.markdown("## 📊 Comparison Analysis Table")
                 st.dataframe(st.session_state['table_data'], use_container_width=True)
                 
-                # Display AI analysis results
                 st.markdown("## 🤖 AI Analysis Results")
                 st.markdown('<div class="difference-box">', unsafe_allow_html=True)
                 st.markdown(st.session_state['analysis'])
                 st.markdown('</div>', unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
 
-            # Document Preview Section
             st.markdown("## 📖 Document Preview")
-            
             preview_col1, preview_col2 = st.columns(2)
             with preview_col1:
                 st.markdown("### Original Document")
@@ -901,40 +1099,12 @@ def main():
                     key="revised_preview"
                 )
             
-            # Download Section
             if 'analysis' in st.session_state and 'table_data' in st.session_state:
                 st.markdown("## 💾 Download Analysis Report")
-                
                 table_data = st.session_state['table_data']
                 ai_analysis = st.session_state['analysis']
                 analysis_date = st.session_state.get('analysis_date', 'N/A')
                 
-                # Generate report text for TXT
-                table_text = "\nCOMPARISON ANALYSIS TABLE:\n"
-                table_text += f"{'Metric':<15} {'Original':<20} {'Revised':<20} {'Description':<25}\n"
-                table_text += "-" * 80 + "\n"
-                for row in table_data:
-                    table_text += f"{row['Metric'][:15]:<15} {row['Original'][:20]:<20} {row['Revised'][:20]:<20} {row['Description'][:25]:<25}\n"
-
-                report_text_txt = f"""Document Comparison Report
-
-Original Document: {original_file.name}
-Revised Document: {revised_file.name}
-Analysis Date: {analysis_date}
-Generated By: AI Document Comparator
-
-COMPARISON METRICS:
-- Similarity: {similarity}%
-- Length Change: {length_change:+.1f}%
-- Character Difference: {len(revised_text) - len(original_text):+,}
-- Line Difference: {len(revised_text.splitlines()) - len(original_text.splitlines()):+,}
-
-{table_text}
-AI ANALYSIS:
-{'\n'.join(process_markdown(ai_analysis, output_format='txt'))}
-"""
-                
-                # Use raw Markdown for PDF and DOCX
                 report_text_formatted = f"""Document Comparison Report
 
 Original Document: {original_file.name}
@@ -952,17 +1122,27 @@ AI ANALYSIS:
 {ai_analysis}
 """
                 
-                # Download buttons
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
-                    st.download_button(
-                        label="📄 Download TXT",
-                        data=report_text_txt,
-                        file_name=f"comparison_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                        mime="text/plain",
-                        use_container_width=True
+                    txt_buffer = generate_txt_report(
+                        ai_analysis,
+                        original_file.name,
+                        revised_file.name,
+                        table_data,
+                        similarity,
+                        length_change,
+                        original_text,
+                        revised_text
                     )
+                    if txt_buffer:
+                        st.download_button(
+                            label="📄 Download TXT",
+                            data=txt_buffer,
+                            file_name=f"comparison_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                            mime="text/plain",
+                            use_container_width=True
+                        )
                 
                 with col2:
                     pdf_buffer = generate_pdf_report(report_text_formatted, original_file.name, revised_file.name, table_data)
@@ -1008,7 +1188,6 @@ AI ANALYSIS:
         </div>
         """, unsafe_allow_html=True)
 
-    # Footer
     st.markdown("""
     <div style="text-align: center; color: #666; margin-top: 2rem; padding: 1rem;">
         <p><strong>🤖 AI Document Comparator</strong> | Powered by Google Gemini AI | Built with Streamlit</p>
