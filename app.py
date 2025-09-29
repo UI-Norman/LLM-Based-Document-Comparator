@@ -73,7 +73,7 @@ st.markdown("""
     @keyframes borderGlow {
         0%, 100% { background-position: 0% 50%; }
         50% { background-position: 100% 50%; }
-    }  /* Fixed: Added missing closing brace */
+    }
     
     .main-header h1 {
         font-size: 3.2rem;
@@ -318,54 +318,85 @@ def extract_text(file):
 def compare_documents_ai(original_text, revised_text, model):
     try:
         prompt = f"""
-        You are an expert document analyst. Compare these two documents and provide a comprehensive analysis:
+You are an expert document analyst tasked with creating a comprehensive, detailed, side-by-side comparison of two documents. The goal is to clearly identify and present changes in a professional, structured format with prominent headings and subheadings.
 
-        ORIGINAL DOCUMENT:
-        {original_text[:4000]}
+### Instructions:
 
-        REVISED DOCUMENT:
-        {revised_text[:4000]}
+- Analyze the actual content of both documents (including text, tables, headings, subheadings, lists, code snippets, etc.). Do not assume or invent content; only consider what is explicitly present in the documents.
+- Compare all sections, headings, subheadings, and content under them, including tables, numbers, lists, or other structured content.
+- Identify exactly what is different, what is added, what is removed, and what is modified.
+- Use **prominent, professional, and bold headings/subheadings** (e.g., using Markdown `##` for main headings and `###` for subheadings) to clearly indicate sections and where changes occur.
+- For each heading and subheading, present differences in a side-by-side format (preferably tables) with the following details on **separate lines** for clarity:
+  - **Actual**: The content from the original document.
+  - **Revised**: The content from the revised document.
+  - **Change Description**: A clear explanation of what has changed.
+  - **Change Type**: Specify whether the change is an Addition, Deletion, Modification, or Structural change in comparison with the actual document.
+- Provide a detailed comparative analysis for each heading and subheading, including changes in tables, numbers, lists, or other structured content.
+- Include an **Executive Summary** highlighting the overall key changes in comparison with the actual document.
+- Provide a **Detailed Comparison** section with examples and direct quotes from the documents.
+- Categorize changes into:
+  - Minor Edits (e.g., typos, small wording changes) in comparison with the actual document.
+  - Substantial Revisions (e.g., rephrased sections, significant content changes) in comparison with the actual document.
+  - Critical Updates (e.g., changes affecting meaning, purpose, or legal/financial implications) in comparison with the actual document.
+- Include an **Impact Assessment** for important changes, describing how each change affects the meaning, purpose, or interpretation, and indicate which version (original or revised) is better or more acceptable.
+- Use clear, bold Markdown headings (e.g., `##`, `###`), bullet points, tables, and side-by-side comparisons for readability.
+- Ensure consistency in terminology (use "Actual" instead of "Original" throughout the output to align with the provided example).
 
-        Please provide a detailed analysis with the following sections:
+### Important:
 
-        1. Executive Summary: Brief overview of what changed between the documents
+- Do not make assumptions about missing content.
+- Do not summarize content without a side-by-side comparison.
+- Compare only sections, tables, lists, and content explicitly present in the documents.
+- Ensure that headings like "Actual," "Revised," "Change Description," and "Change Type" are bold and prominent in the output.
 
-        2. Key Changes Identified: 
-           - List the most significant modifications
-           - Highlight additions, deletions, and modifications
-           - Note any structural changes
+### Required Output Format Example:
 
-        3. Content Analysis:
-           - Compare tone and style differences
-           - Identify changes in terminology or language
-           - Note any formatting or organizational changes
+## Executive Summary
 
-        4. Detailed Comparison:
-           - Provide specific before/after examples of important changes
-           - Quote relevant sections that were modified
-           - Explain the context of each change
+[Summary of key changes in comparison with actual document]
 
-        5. Impact Assessment:
-           - What do these changes mean?
-           - How might they affect the document's purpose or audience?
-           - Are there any potential implications or consequences?
+## Section-by-Section Comparison
 
-        6. Change Categories:
-           - Classify changes as: Minor edits, Substantial revisions, Critical updates
-           - Identify patterns in the types of changes made
+### Heading: [Heading Name]
 
-        7. Quality & Consistency:
-           - Comment on the overall quality of changes
-           - Note any inconsistencies or potential issues
-           - Suggest areas that might need attention
+| **Actual** | **Revised** | **Change Description** | **Change Type** (in comparison with actual document) |
+|------------|-------------|------------------------|------------------------------------------------------|
+| [text]     | [text]      | [description of what changed] | [Added/Deleted/Modified/Structural change]           |
 
-        8. Recommendations:
-           - Any suggestions for further improvements
-           - Flag any concerns or potential problems
-           - Highlight positive changes
+### Subheading: [Subheading Name]
 
-        Format your response with clear headers, bullet points, and examples for easy reading.
-        Be thorough but concise, focusing on the most meaningful differences.
+**Actual**: [text/content]
+**Revised**: [text/content]
+**Change Description**: [description of what changed]
+**Change Type**: [Added/Deleted/Modified/Structural change] in comparison with actual document
+
+[Repeat for all headings, subheadings, tables, and sections.]
+
+## Key Changes Identified
+
+- [List most significant changes in comparison with actual document]
+
+## Impact Assessment
+
+- [Implications of changes in comparison with actual document, including which version is better or acceptable]
+
+## Change Categories
+
+- **Minor Edits**: [...] in comparison with actual document
+- **Substantial Revisions**: [...] in comparison with actual document
+- **Critical Updates**: [...] in comparison with actual document
+
+## Recommendations
+
+- [Suggestions for improvements or points to review in comparison with actual document]
+
+---
+
+ACTUAL DOCUMENT:
+{original_text}
+
+REVISED DOCUMENT:
+{revised_text}
         """
 
         response = model.generate_content(prompt)
