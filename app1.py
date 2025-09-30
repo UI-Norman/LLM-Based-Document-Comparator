@@ -3,7 +3,7 @@ import google.generativeai as genai
 import PyPDF2
 import io
 import docx
-from io import BytesIO  # Explicitly import BytesIO
+from io import BytesIO
 import os
 from dotenv import load_dotenv
 import difflib
@@ -29,7 +29,6 @@ from typing import List
 import uuid
 import pandas as pd
 
-
 # Load environment variables
 load_dotenv()
 
@@ -41,7 +40,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for attractive interface
+# Custom CSS for attractive interface with keyword highlighting
 st.markdown("""
 <style>
     .main-header {
@@ -266,8 +265,28 @@ st.markdown("""
         border: none !important;
         box-shadow: none !important;
     }
+    
+    .highlight-keyword {
+        font-weight: bold;
+        background-color: #FFF9C4;
+        color: #D81B60;
+        padding: 2px 4px;
+        border-radius: 3px;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+# Function to highlight specific keywords
+def highlight_keywords(text):
+    keywords = ["Actual", "Revised", "Modified", "Change", "Original"]
+    for keyword in keywords:
+        text = re.sub(
+            rf'\b{keyword}\b',
+            f'<span class="highlight-keyword">{keyword}</span>',
+            text,
+            flags=re.IGNORECASE
+        )
+    return text
 
 # Initialize Gemini AI
 @st.cache_resource
@@ -279,7 +298,7 @@ def initialize_ai():
             return None
         
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.5-flash')  # Updated to gemini-1.5-flash for better performance
+        model = genai.GenerativeModel('gemini-2.5-flash')
         return model
     except Exception as e:
         st.error(f"❌ Error initializing AI: {str(e)}")
@@ -408,31 +427,30 @@ def validate_comparison_table(table_data):
             return False, f"Row missing required columns: {row}"
         if row["Change Type"] not in valid_change_types:
             return False, f"Invalid Change Type: {row['Change Type']}"
-        # Allow empty 'Revised' for 'Removed' and empty 'Original' for 'Added'
         for col in expected_columns:
             if col == "Revised" and row["Change Type"] == "Removed" and not row[col]:
-                continue  # Allow empty Revised for Removed
+                continue
             if col == "Original" and row["Change Type"] == "Added" and not row[col]:
-                continue  # Allow empty Original for Added
+                continue
             if not row[col]:
                 return False, f"Row contains empty required field '{col}': {row}"
     
     return True, "Comparison table is valid"
+
+# Normalize change type
 def normalize_change_type(change_type):
-    """Normalize invalid Change Type values to a valid one or flag for review."""
     valid_types = ["Added", "Removed", "Modified", "Unchanged"]
     change_type = change_type.strip()
     
-    # Handle common invalid cases
     if "/" in change_type:
-        # If combined like "Removed/Modified", default to Modified or first valid type
         for valid_type in valid_types:
             if valid_type.lower() in change_type.lower():
                 return valid_type
-        return "Modified"  # Default to Modified for ambiguous cases
+        return "Modified"
     if change_type not in valid_types:
-        return "Modified"  # Fallback to a safe default
+        return "Modified"
     return change_type
+
 # Compare documents using AI with LangChain parser
 def compare_documents_ai(original_text, revised_text, model):
     try:
@@ -520,10 +538,8 @@ Followed by:
         
         parsed_output = output_parser.parse(response.text)
         
-        # Convert Pydantic model to dict for compatibility with existing code
         parsed_output_dict = parsed_output.dict(by_alias=True)
         
-        # Fill missing fields with "(Empty)" and clean br tags
         for row in parsed_output_dict["comparison_table"]:
             for key in ["Section/Element", "Original", "Revised", "Change Type", "Where Changed", "Impact", "Recommendation"]:
                 if key not in row:
@@ -531,7 +547,6 @@ Followed by:
                 else:
                     row[key] = clean_br_tags(row[key])
         
-        # Validate the comparison table
         is_valid, validation_message = validate_comparison_table(parsed_output_dict["comparison_table"])
         if not is_valid:
             st.warning(f"⚠️ Validation failed: {validation_message}")
@@ -590,14 +605,12 @@ def generate_comparison_table(original_text, revised_text, original_filename, re
 
 def generate_pdf_report(ai_analysis, original_filename, revised_filename, metrics_table, comparison_table):
     try:
-        # Clean inputs to remove problematic characters
         ai_analysis = {k: clean_br_tags(v) if isinstance(v, str) else v for k, v in ai_analysis.items()}
         original_filename = clean_br_tags(original_filename)
         revised_filename = clean_br_tags(revised_filename)
         metrics_table = [{k: clean_br_tags(v) for k, v in row.items()} for row in metrics_table]
         comparison_table = [{k: clean_br_tags(v) if v else "(Empty)" for k, v in row.items()} for row in comparison_table]
 
-        # Initialize PDF buffer and document in landscape mode with increased bottom margin for better splitting
         buffer = BytesIO()
         doc = SimpleDocTemplate(
             buffer,
@@ -605,20 +618,18 @@ def generate_pdf_report(ai_analysis, original_filename, revised_filename, metric
             rightMargin=30,
             leftMargin=30,
             topMargin=30,
-            bottomMargin=50  # Increased to allow more space for table splitting
+            bottomMargin=50
         )
         elements = []
 
-        # Styles for text
         styles = getSampleStyleSheet()
         title_style = styles['Title']
         heading_style = styles['Heading1']
         body_style = styles['Normal']
-        body_style.fontSize = 7  # Further reduced font size
-        body_style.leading = 9  # Tighter leading
-        body_style.wordWrap = 'CJK'  # Enable word wrapping for all text
+        body_style.fontSize = 7
+        body_style.leading = 9
+        body_style.wordWrap = 'CJK'
 
-        # Add title
         elements.append(Paragraph("Document Comparison Report", title_style))
         elements.append(Spacer(1, 12))
         elements.append(Paragraph(f"Original Document: {original_filename}", body_style))
@@ -626,7 +637,6 @@ def generate_pdf_report(ai_analysis, original_filename, revised_filename, metric
         elements.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", body_style))
         elements.append(Spacer(1, 18))
 
-        # Comparison Metrics Table with adjusted widths and wrapping
         elements.append(Paragraph("Comparison Metrics Table", heading_style))
         metrics_data = [["Metric", "Original", "Revised", "Description"]] + [
             [Paragraph(row["Metric"], body_style), 
@@ -656,17 +666,16 @@ def generate_pdf_report(ai_analysis, original_filename, revised_filename, metric
         elements.append(metrics_table_obj)
         elements.append(Spacer(1, 18))
 
-        # AI Comparison Table with adjusted widths, wrapping, and splitting
         elements.append(Paragraph("AI Comparison Table", heading_style))
         comparison_data = [["Section/Element", "Original", "Revised", "Change Type", "Where Changed", "Impact", "Recommendation"]] + [
             [
-                Paragraph(row.get("Section/Element", "")[:100], body_style),  # Truncate long text
-                Paragraph(row.get("Original", "")[:200], body_style),        # Truncate to prevent overflow
-                Paragraph(row.get("Revised", "")[:200], body_style),         # Truncate to prevent overflow
+                Paragraph(row.get("Section/Element", "")[:100], body_style),
+                Paragraph(row.get("Original", "")[:200], body_style),
+                Paragraph(row.get("Revised", "")[:200], body_style),
                 Paragraph(row.get("Change Type", ""), body_style),
                 Paragraph(row.get("Where Changed", ""), body_style),
-                Paragraph(row.get("Impact", "")[:150], body_style),          # Truncate to prevent overflow
-                Paragraph(row.get("Recommendation", "")[:150], body_style)   # Truncate to prevent overflow
+                Paragraph(row.get("Impact", "")[:150], body_style),
+                Paragraph(row.get("Recommendation", "")[:150], body_style)
             ]
             for row in comparison_table
         ]
@@ -677,9 +686,9 @@ def generate_pdf_report(ai_analysis, original_filename, revised_filename, metric
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 6),  # Further reduced font size
+            ('FONTSIZE', (0, 0), (-1, 0), 6),
             ('FONTSIZE', (0, 1), (-1, -1), 6),
-            ('LEFTPADDING', (0, 0), (-1, -1), 1),  # Reduced padding
+            ('LEFTPADDING', (0, 0), (-1, -1), 1),
             ('RIGHTPADDING', (0, 0), (-1, -1), 1),
             ('TOPPADDING', (0, 0), (-1, -1), 1),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
@@ -691,7 +700,6 @@ def generate_pdf_report(ai_analysis, original_filename, revised_filename, metric
         elements.append(comparison_table_obj)
         elements.append(Spacer(1, 18))
 
-        # AI Analysis Sections
         elements.append(Paragraph("Executive Summary", heading_style))
         elements.append(Paragraph(ai_analysis["executive_summary"], body_style))
         elements.append(Spacer(1, 12))
@@ -708,7 +716,6 @@ def generate_pdf_report(ai_analysis, original_filename, revised_filename, metric
         elements.append(Paragraph(ai_analysis["recommendations_summary"], body_style))
         elements.append(Spacer(1, 12))
 
-        # Build PDF without page callbacks
         doc.build(elements)
         buffer.seek(0)
         return buffer
@@ -779,7 +786,7 @@ def generate_docx_report(ai_analysis, original_filename, revised_filename, metri
         doc.add_heading('Recommendations Summary', level=1)
         doc.add_paragraph(ai_analysis["recommendations_summary"])
 
-        footer = doc.add_paragraph('Generated by AI Document Comparator')
+        footer = doc.add_paragraph('AI Document Comparator')
         footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
         buffer = BytesIO()
@@ -1061,10 +1068,10 @@ def main():
                 
                 st.markdown("## 🤖 AI Analysis Results")
                 st.markdown('<div class="difference-box">', unsafe_allow_html=True)
-                st.markdown(f"**Executive Summary**\n{clean_br_tags(st.session_state['ai_analysis']['executive_summary'])}")
-                st.markdown(f"**Section-by-Section Analysis**\n{clean_br_tags(st.session_state['ai_analysis']['section_analysis'])}")
-                st.markdown(f"**Image Comparison Report**\n{clean_br_tags(st.session_state['ai_analysis']['image_comparison'])}")
-                st.markdown(f"**Recommendations Summary**\n{clean_br_tags(st.session_state['ai_analysis']['recommendations_summary'])}")
+                st.markdown(f"**Executive Summary**\n{highlight_keywords(clean_br_tags(st.session_state['ai_analysis']['executive_summary']))}", unsafe_allow_html=True)
+                st.markdown(f"**Section-by-Section Analysis**\n{highlight_keywords(clean_br_tags(st.session_state['ai_analysis']['section_analysis']))}", unsafe_allow_html=True)
+                st.markdown(f"**Image Comparison Report**\n{highlight_keywords(clean_br_tags(st.session_state['ai_analysis']['image_comparison']))}", unsafe_allow_html=True)
+                st.markdown(f"**Recommendations Summary**\n{highlight_keywords(clean_br_tags(st.session_state['ai_analysis']['recommendations_summary']))}", unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1074,7 +1081,7 @@ def main():
                 st.markdown("### Original Document")
                 st.text_area(
                     "Original Content",
-                    clean_br_tags(original_text),
+                    highlight_keywords(clean_br_tags(original_text)),
                     height=400,
                     disabled=False,
                     key="original_preview"
@@ -1084,7 +1091,7 @@ def main():
                 st.markdown("### Revised Document") 
                 st.text_area(
                     "Revised Content",
-                    clean_br_tags(revised_text),
+                    highlight_keywords(clean_br_tags(revised_text)),
                     height=400,
                     disabled=False,
                     key="revised_preview"
