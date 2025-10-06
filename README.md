@@ -78,9 +78,6 @@ Key technologies:
    - **Download Reports**: Use the buttons to download reports in your preferred format.
 
 3. **Demo **:
-     ![Upload Interface](screenshots/upload_interface.png)
-   
-   - **In Features Section**: Embed relevant screenshots next to feature descriptions for visual appeal, e.g., after "Document Previews":
      ![AI Document Comparator Demo](assets/AI%20Documents%20Comparator.png)
      ![AI Document Comparator Demo](assets/AI%20Documents%20Comparator1.png)
      ![AI Document Comparator Demo](assets/AI%20Documents%20Comparator2.png)
