@@ -114,4 +114,3 @@ Contributions are welcome! Fork the repository, make changes (e.g., add support 
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details. (If no LICENSE exists, add one to the repository.)
-```
